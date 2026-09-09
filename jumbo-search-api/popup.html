@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Jumbo Search API</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; width: 380px; max-height: 500px; overflow-y: auto; background: #f0f4ff; color: #1a1a1a; }
+        .header { background: #2563eb; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+        .header h1 { font-size: 14px; font-weight: 700; color: white; }
+        .header .badge { background: white; color: #2563eb; border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+        .info { padding: 12px 16px; font-size: 12px; color: #666; line-height: 1.5; }
+        .info code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .tools { padding: 0 16px 12px; }
+        .tool-card { background: white; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .tool-name { font-size: 13px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
+        .tool-desc { font-size: 11px; color: #666; }
+        .results { padding: 0 16px 16px; }
+        .results-header { font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 8px 0 4px; border-bottom: 2px solid #2563eb; }
+        .result-item { background: white; border-radius: 8px; padding: 8px 12px; margin-top: 6px; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .empty { text-align: center; padding: 30px 20px; color: #999; }
+        .status-bar { padding: 8px 16px; font-size: 11px; color: #999; text-align: center; border-top: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>Jumbo Search API</h1><span class="badge">MCP Tools</span></div>
+    <div class="info">
+        This extension registers two MCP tools that use the Webfuse Automation API:
+        <code>domSnapshot()</code> for reading the page and <code>navigate()</code> for searching.
+    </div>
+    <div class="tools">
+        <div class="tool-card">
+            <div class="tool-name">jumbo_search</div>
+            <div class="tool-desc">Searches a product on Jumbo, waits for results, scrolls, and returns products via DOM snapshot.</div>
+        </div>
+        <div class="tool-card">
+            <div class="tool-name">jumbo_scan_page</div>
+            <div class="tool-desc">Scans the current Jumbo page for products using Automation API DOM snapshot.</div>
+        </div>
+    </div>
+    <div class="results">
+        <div class="results-header">Cached Results</div>
+        <div id="resultsList"><div class="empty"><p>No searches yet.</p><p>Tools are called via MCP client (Atlas or external agent).</p></div></div>
+    </div>
+    <div class="status-bar" id="status">Ready</div>
+    <script>
+        browser.runtime.onMessage.addListener((message) => {
+            if (message.type === 'CACHE_UPDATED') {
+                renderCache(message.cache);
+            }
+        });
+
+        browser.runtime.sendMessage({ type: 'GET_CACHE' }).then((cache) => {
+            if (cache && Object.keys(cache).length > 0) renderCache(cache);
+        });
+
+        function renderCache(cache) {
+            const entries = Object.entries(cache);
+            if (entries.length === 0) return;
+            document.getElementById('resultsList').innerHTML = entries.map(([query, data]) => 
+                '<div class="result-item"><strong>' + query + '</strong>: ' + data.products.length + ' products<br><span style="font-size:10px;color:#999">' + data.timestamp + '</span></div>'
+            ).join('');
+            document.getElementById('status').textContent = entries.length + ' searches cached';
+        }
+    </script>
+</body>
+</html>
