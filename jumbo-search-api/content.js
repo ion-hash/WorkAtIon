@@ -1,13 +1,13 @@
 /**
  * Jumbo Search API - Content Script
  *
- * Registers MCP tools that use the Webfuse Automation API.
- * - jumbo_search: navigates to Jumbo search, waits for products, scans page
- * - jumbo_scan_page: scans the current page for products
+ * Registers MCP tools:
+ * - jumbo_search: navigates to Jumbo search page and waits for products (fast, under 15s)
+ * - jumbo_scan_page: scans current page for products using document.querySelectorAll
  *
- * Both tools use browser.webfuseSession.automation.see.domSnapshot()
- * to read the page (including shadow DOM and iframes that raw JS can't reach),
- * then parse the HTML to extract product data.
+ * Product extraction uses the live DOM (document.querySelectorAll) which reliably
+ * finds product links in Jumbo's Nuxt.js SPA. The Automation API is used for
+ * navigation and scrolling.
  */
 
 (function () {
@@ -15,74 +15,65 @@
 
     const automation = browser.webfuseSession.automation;
 
-    // ---- Product extraction from HTML ----
+    // ---- Product extraction from live DOM ----
 
-    function extractProductsFromHTML(html) {
+    function extractProducts() {
         const products = [];
-        const productLinkPattern = /href="(\/producten\/[^"]+-(\d+)([A-Z]{2,4}))"/g;
+        const productLinkPattern = /^\/producten\/.+-(\d+)([A-Z]{2,4})$/;
+        const productLinks = document.querySelectorAll('a[href^="/producten/"]');
         const seen = new Set();
-        let match;
 
-        while ((match = productLinkPattern.exec(html)) !== null) {
-            const href = match[1];
-            const productId = match[2] + match[3];
+        productLinks.forEach((link) => {
+            const href = link.getAttribute('href') || '';
+            const match = href.match(productLinkPattern);
+            if (!match) return;
 
-            if (seen.has(productId)) continue;
+            const productId = match[1] + match[2];
+            if (seen.has(productId)) return;
             seen.add(productId);
 
-            // Extract the product name from the link text
-            // Look for the text content near the href
-            const linkContext = html.substring(
-                Math.max(0, match.index - 500),
-                Math.min(html.length, match.index + 500)
-            );
+            const name = link.textContent.trim() || link.getAttribute('title') || '';
+            if (!name) return;
 
-            // Try to find a heading or title near the link
-            const nameMatch = linkContext.match(/>([^<]{5,200})<\/(?:a|h3|h4|span|p)>/);
-            const name = nameMatch ? nameMatch[1].trim() : '';
+            const card = link.closest('article, li, div[class*="product"], section, [data-testid*="product"]');
+            const cardEl = card || link.parentElement;
 
-            if (!name) continue;
+            let image = '';
+            const imgEl = cardEl ? cardEl.querySelector('img') : null;
+            if (imgEl) {
+                image = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+            }
 
-            // Extract image
-            const imgMatch = linkContext.match(/src="([^"]*\.(?:png|jpg|jpeg|webp)[^"]*)"/i);
-            const image = imgMatch ? imgMatch[1] : '';
+            const cardText = cardEl ? cardEl.textContent : '';
+            const isSponsored = /gesponsord/i.test(cardText);
 
-            // Check for sponsored
-            const isSponsored = /gesponsord/i.test(linkContext);
-
-            // Extract price
             let price = null;
-            const priceMatch = linkContext.match(/€\s*(\d+[.,]\d{1,2})/);
+            const priceMatch = cardText.match(/\u20ac\s*(\d+[.,]\d{1,2})/);
             if (priceMatch) {
                 price = parseFloat(priceMatch[1].replace(',', '.'));
             }
 
-            // Extract pack size
             let packSize = '';
             const sizePatterns = [
                 /\b(\d+\s*[xX]\s*\d+\s*[gGkK]{1,2})\b/,
                 /\b(\d+\s*[gGkK]{1,2})\b/,
                 /\b(\d+\s*[xX]\s*\d+\s*[mM][lL])\b/,
-                /\b(\d+\s*[mM][lL])\b/
+                /\b(\d+\s*[mM][lL])\b/,
+                /\b(\d+\s*[xX]\s*\d+\s*[sS][tT][uU][kK]?)\b/,
+                /\b(\d+\s*[sS][tT][uU][kK]?)\b/
             ];
             for (const pattern of sizePatterns) {
-                const sizeMatch = linkContext.match(pattern);
+                const sizeMatch = cardText.match(pattern);
                 if (sizeMatch) { packSize = sizeMatch[1]; break; }
             }
 
             const fullUrl = 'https://www.jumbo.com' + href;
 
-            // Look for add-to-cart button in the context
-            const btnMatch = linkContext.match(/<(?:button|a)[^>]*(?:class="[^"]*(?:is-primary|jum-button|success)[^"]*")[^>]*>/i);
             let addToCartSelector = null;
-            if (btnMatch) {
-                // Build a CSS selector from the found button
-                const classMatch = btnMatch[0].match(/class="([^"]*)"/);
-                if (classMatch) {
-                    const classes = classMatch[1].trim().split(/\s+/);
-                    if (classes.length > 0) {
-                        addToCartSelector = 'button.' + classes.join('.');
-                    }
+            if (cardEl) {
+                const btn = cardEl.querySelector('button.is-primary, button.success, button[class*="jum-button"]');
+                if (btn) {
+                    addToCartSelector = generateSelector(btn);
                 }
             }
 
@@ -96,22 +87,47 @@
                 sponsored: isSponsored,
                 addToCartSelector: addToCartSelector
             });
-        }
+        });
 
         return products;
     }
 
-    // ---- Wait for products to appear ----
+    function generateSelector(el) {
+        if (el.id) return '#' + el.id;
+        const path = [];
+        let current = el;
+        while (current && current !== document.body) {
+            let selector = current.tagName.toLowerCase();
+            if (current.className) {
+                const classes = current.className.split(/\s+/).filter(c => c.length > 0);
+                if (classes.length > 0) {
+                    selector += '.' + classes.join('.');
+                }
+            }
+            const parent = current.parentElement;
+            if (parent) {
+                const siblings = Array.from(parent.children).filter(c => c.tagName === current.tagName);
+                if (siblings.length > 1) {
+                    const index = siblings.indexOf(current);
+                    selector += ':nth-of-type(' + (index + 1) + ')';
+                }
+            }
+            path.unshift(selector);
+            current = parent;
+        }
+        return path.join(' > ');
+    }
+
+    // ---- Wait for products to appear in DOM ----
 
     function waitForProducts(maxWaitMs) {
         return new Promise((resolve) => {
             const startTime = Date.now();
             const checkInterval = setInterval(() => {
-                const links = document.querySelectorAll('a[href*="/producten/"]');
+                const links = document.querySelectorAll('a[href^="/producten/"]');
                 if (links.length > 0) {
                     clearInterval(checkInterval);
-                    // Give extra time for all products to render
-                    setTimeout(() => resolve(true), 2000);
+                    setTimeout(() => resolve(true), 1500);
                 } else if (Date.now() - startTime > maxWaitMs) {
                     clearInterval(checkInterval);
                     resolve(false);
@@ -120,31 +136,35 @@
         });
     }
 
-    // ---- Scroll page using Automation API ----
+    // ---- Scroll page ----
 
     async function scrollPage() {
         try {
-            await automation.act.scroll({ target: 'body', amount: 800 });
-            await new Promise(r => setTimeout(r, 1000));
-            await automation.act.scroll({ target: 'body', amount: 800 });
-            await new Promise(r => setTimeout(r, 1000));
+            await automation.act.scroll({ target: 'body', amount: 600 });
+            await new Promise(r => setTimeout(r, 800));
+            await automation.act.scroll({ target: 'body', amount: 600 });
+            await new Promise(r => setTimeout(r, 800));
         } catch (e) {
-            console.log('[Jumbo Search API] Scroll failed, continuing', e);
+            // Fallback to native scroll
+            window.scrollBy(0, 600);
+            await new Promise(r => setTimeout(r, 800));
+            window.scrollBy(0, 600);
+            await new Promise(r => setTimeout(r, 800));
         }
     }
 
     // ---- Register MCP Tools ----
 
-    // Tool: jumbo_search
+    // Tool: jumbo_search - navigates and waits for products (fast, under 15s)
     browser.webfuseSession.tools.registerTool({
         name: 'jumbo_search',
-        description: 'Search for a product on Jumbo. Navigates to the Jumbo search page, waits for results, scrolls to load all products, takes a DOM snapshot using the Automation API, and returns a list of products with name, price, image, pack size, and add-to-cart button selector.',
+        description: 'Search for a product on Jumbo. Navigates to the Jumbo search page and waits for products to load. Returns the search URL and number of products found. Use jumbo_scan_page afterwards to get the full product list with details.',
         inputSchema: {
             type: 'object',
             properties: {
                 query: {
                     type: 'string',
-                    description: 'The product to search for (e.g. banana, milk, mango)'
+                    description': 'The product to search for (e.g. banana, milk, mango)'
                 }
             },
             required: ['query']
@@ -152,76 +172,58 @@
         execute: async (args, ctx) => {
             const query = args.query;
 
-            // Report progress
             browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 1, total: 4, message: 'Navigating to Jumbo search: ' + query
+                progress: 1, total: 2, message: 'Navigating to Jumbo search: ' + query
             });
 
-            // Navigate to Jumbo search using Automation API
+            // Navigate using Automation API
             const searchUrl = 'https://www.jumbo.com/producten/?searchType=keyword&searchTerms=' + encodeURIComponent(query);
             await automation.navigate({ url: searchUrl });
 
-            // Wait for products to load
             browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 2, total: 4, message: 'Waiting for products to load...'
+                progress: 2, total: 2, message: 'Waiting for products to load...'
             });
-            const found = await waitForProducts(15000);
 
-            if (!found) {
-                return { error: 'No products found for: ' + query };
-            }
-
-            // Scroll to load lazy products using Automation API
-            browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 3, total: 4, message: 'Scrolling to load all products...'
-            });
-            await scrollPage();
-
-            // Take DOM snapshot using Automation API
-            browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 4, total: 4, message: 'Scanning page with Automation API...'
-            });
-            const snapshot = await automation.see.domSnapshot();
-
-            // Extract products from the snapshot
-            const products = extractProductsFromHTML(snapshot.html || snapshot || '');
-
-            // Cache results
-            browser.runtime.sendMessage({
-                type: 'SEARCH_RESULTS',
-                query: query,
-                products: products,
-                url: window.location.href
-            }).catch(() => {});
+            // Wait for products to appear in DOM
+            const found = await waitForProducts(10000);
 
             return JSON.stringify({
                 query: query,
-                count: products.length,
                 url: window.location.href,
-                products: products
+                productsFound: found,
+                productCount: found ? document.querySelectorAll('a[href^="/producten/"]').length : 0,
+                message: found ? 'Products loaded. Call jumbo_scan_page to get full product list.' : 'No products found.'
             }, null, 2);
         }
     });
 
-    // Tool: jumbo_scan_page
+    // Tool: jumbo_scan_page - scans current page for products (fast, under 15s)
     browser.webfuseSession.tools.registerTool({
         name: 'jumbo_scan_page',
-        description: 'Scan the current Jumbo page for products using the Webfuse Automation API DOM snapshot. Returns all products found with name, price, image, pack size, and add-to-cart button selector.',
+        description: 'Scan the current Jumbo page for products. Scrolls to load all products then extracts name, price, image, pack size, and add-to-cart button selector using the live DOM. Call after jumbo_search.',
         inputSchema: {
             type: 'object',
             properties: {}
         },
         execute: async (args, ctx) => {
             browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 1, total: 2, message: 'Scrolling page to load products...'
+                progress: 1, total: 2, message: 'Scrolling to load products...'
             });
             await scrollPage();
 
             browser.webfuseSession.tools.sendAutomationProgress(ctx.eventId, {
-                progress: 2, total: 2, message: 'Taking DOM snapshot with Automation API...'
+                progress: 2, total: 2, message: 'Extracting products from DOM...'
             });
-            const snapshot = await automation.see.domSnapshot();
-            const products = extractProductsFromHTML(snapshot.html || snapshot || '');
+
+            const products = extractProducts();
+
+            // Cache results
+            browser.runtime.sendMessage({
+                type: 'SEARCH_RESULTS',
+                query: new URLSearchParams(window.location.search).get('searchTerms') || 'unknown',
+                products: products,
+                url: window.location.href
+            }).catch(() => {});
 
             return JSON.stringify({
                 count: products.length,
