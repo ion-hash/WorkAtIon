@@ -1,0 +1,19 @@
+{
+    "manifest_version": 3,
+    "name": "Jumbo Product Search",
+    "version": "1.0.0",
+    "description": "Searches Jumbo products and extracts structured data (name, price, image, pack size, add-to-cart selector).",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "js": ["content.js"],
+            "matches": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "host_permissions": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+}

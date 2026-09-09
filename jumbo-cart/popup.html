@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Jumbo Cart</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; width: 380px; max-height: 450px; overflow-y: auto; background: #faf8f5; color: #1a1a1a; }
+        .header { background: #1a8a3a; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+        .header h1 { font-size: 15px; font-weight: 700; color: white; }
+        .header .count { background: white; color: #1a8a3a; border-radius: 12px; padding: 2px 10px; font-size: 13px; font-weight: 700; }
+        .input-section { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .input-section label { font-size: 12px; font-weight: 600; color: #666; }
+        .input-section input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; outline: none; font-family: monospace; }
+        .input-section input:focus { border-color: #1a8a3a; }
+        .input-section textarea { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 12px; outline: none; font-family: monospace; resize: vertical; min-height: 50px; }
+        .input-section textarea:focus { border-color: #1a8a3a; }
+        .qty-row { display: flex; gap: 8px; align-items: center; }
+        .qty-row input { flex: 1; }
+        .btn { padding: 8px 12px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .btn-add { background: #1a8a3a; color: white; width: 100%; }
+        .btn-add:hover { background: #157030; }
+        .btn-check { background: #e8e8e8; color: #1a1a1a; width: 100%; }
+        .btn-check:hover { background: #d8d8d8; }
+        .history-section { padding: 8px 16px 16px; }
+        .history-header { font-size: 12px; font-weight: 700; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 0 4px; border-bottom: 2px solid #1a8a3a; }
+        .history-item { background: white; border-radius: 8px; padding: 8px 12px; margin-top: 6px; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .history-item .success { color: #1a8a3a; font-weight: 600; }
+        .history-item .failed { color: #c0392b; font-weight: 600; }
+        .history-item .time { color: #999; font-size: 10px; }
+        .empty-state { text-align: center; padding: 30px 20px; color: #999; }
+        .empty-state p { font-size: 13px; margin-top: 8px; }
+        .status-bar { padding: 8px 16px; font-size: 11px; color: #999; text-align: center; border-top: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>Jumbo Cart Adder</h1><span class="count" id="cartCount">-</span></div>
+
+    <div class="input-section">
+        <label>CSS Selector (from Search extension)</label>
+        <textarea id="selectorInput" placeholder="e.g. div.buttons > button.success.jum-button..."></textarea>
+        <div class="qty-row">
+            <label style="font-size: 12px; font-weight: 600; color: #666; white-space: nowrap;">Qty:</label>
+            <input type="number" id="qtyInput" value="1" min="1" max="20" style="width: 60px;" />
+        </div>
+        <button class="btn btn-add" id="addBtn">Add to Cart</button>
+        <button class="btn btn-check" id="checkBtn">Check Cart Count</button>
+    </div>
+
+    <div class="history-section">
+        <div class="history-header">Cart History</div>
+        <div id="historyList"><div class="empty-state"><p>No items added yet.</p></div></div>
+    </div>
+
+    <div class="status-bar" id="status">Ready</div>
+
+    <script>
+        const selectorInput = document.getElementById('selectorInput');
+        const qtyInput = document.getElementById('qtyInput');
+        const addBtn = document.getElementById('addBtn');
+        const checkBtn = document.getElementById('checkBtn');
+        const cartCountEl = document.getElementById('cartCount');
+        const historyList = document.getElementById('historyList');
+        const statusEl = document.getElementById('status');
+
+        addBtn.addEventListener('click', () => {
+            const selector = selectorInput.value.trim();
+            const quantity = parseInt(qtyInput.value) || 1;
+            if (!selector) { statusEl.textContent = 'Enter a CSS selector first'; return; }
+            statusEl.textContent = 'Adding to cart...';
+            browser.runtime.sendMessage({ type: 'ADD_TO_CART', selector: selector, quantity: quantity });
+        });
+
+        checkBtn.addEventListener('click', () => {
+            statusEl.textContent = 'Checking cart...';
+            browser.runtime.sendMessage({ type: 'GET_CART_COUNT' }).then((result) => {
+                cartCountEl.textContent = result.cartCount !== null ? result.cartCount : '?';
+                statusEl.textContent = 'Cart count: ' + (result.cartCount !== null ? result.cartCount : 'unknown');
+            });
+        });
+
+        browser.runtime.onMessage.addListener((message) => {
+            if (message.type === 'CART_UPDATED') {
+                renderHistory(message.history || []);
+                if (message.result && message.result.success) {
+                    cartCountEl.textContent = message.result.cartCount !== null ? message.result.cartCount : '?';
+                    statusEl.textContent = 'Added ' + message.result.quantity + 'x to cart!';
+                } else {
+                    statusEl.textContent = 'Failed: ' + (message.result && message.result.error ? message.result.error : 'unknown');
+                }
+            }
+        });
+
+        browser.runtime.sendMessage({ type: 'GET_CART_HISTORY' }).then((result) => {
+            if (result && result.history && result.history.length > 0) {
+                renderHistory(result.history);
+            }
+        });
+
+        function renderHistory(history) {
+            if (history.length === 0) {
+                historyList.innerHTML = '<div class="empty-state"><p>No items added yet.</p></div>';
+                return;
+            }
+            historyList.innerHTML = history.map(h => {
+                const time = new Date(h.timestamp).toLocaleTimeString();
+                return '<div class="history-item">' +
+                    '<span class="success">✓ Added ' + h.quantity + 'x</span> ' +
+                    '<span class="time">' + time + '</span>' +
+                    '<br><span style="font-family: monospace; font-size: 10px; color: #999; word-break: break-all;">' + escapeHtml(h.selector.substring(0, 80)) + '</span>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+    </script>
+</body>
+</html>

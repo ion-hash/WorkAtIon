@@ -1,0 +1,19 @@
+{
+    "manifest_version": 3,
+    "name": "Jumbo Cart Adder",
+    "version": "1.0.0",
+    "description": "Adds products to the Jumbo shopping cart. Receives a CSS selector and clicks the add-to-cart button.",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "js": ["content.js"],
+            "matches": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "host_permissions": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+}
