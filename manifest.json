@@ -1,0 +1,29 @@
+{
+    "manifest_version": 3,
+    "name": "Jumbo Shopping Assistant",
+    "version": "0.1.0",
+    "description": "Reads Jumbo product pages and extracts structured product data for automated shopping assistance.",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "js": ["content.js"],
+            "matches": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "24": "icon.png"
+        }
+    },
+    "host_permissions": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"],
+    "env": [
+        {
+            "key": "AUTO_SCROLL",
+            "value": "true",
+            "description": "If true, auto-scrolls the page to load all lazy-loaded products before extraction."
+        }
+    ]
+}
