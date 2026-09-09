@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Jumbo Cart API</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; width: 380px; max-height: 450px; overflow-y: auto; background: #f0fdf4; color: #1a1a1a; }
+        .header { background: #16a34a; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+        .header h1 { font-size: 14px; font-weight: 700; color: white; }
+        .header .badge { background: white; color: #16a34a; border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+        .info { padding: 12px 16px; font-size: 12px; color: #666; line-height: 1.5; }
+        .info code { background: #e8f5e9; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .tools { padding: 0 16px 12px; }
+        .tool-card { background: white; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .tool-name { font-size: 13px; font-weight: 700; color: #16a34a; margin-bottom: 4px; }
+        .tool-desc { font-size: 11px; color: #666; }
+        .history { padding: 0 16px 16px; }
+        .history-header { font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 8px 0 4px; border-bottom: 2px solid #16a34a; }
+        .history-item { background: white; border-radius: 8px; padding: 8px 12px; margin-top: 6px; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .history-item .qty { color: #16a34a; font-weight: 600; }
+        .history-item .time { font-size: 10px; color: #999; }
+        .empty { text-align: center; padding: 30px 20px; color: #999; }
+        .status-bar { padding: 8px 16px; font-size: 11px; color: #999; text-align: center; border-top: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>Jumbo Cart API</h1><span class="badge">MCP Tools</span></div>
+    <div class="info">
+        Uses the Webfuse Automation API: <code>act.click()</code> to click add-to-cart buttons
+        and <code>see.domSnapshot()</code> to verify the cart count.
+    </div>
+    <div class="tools">
+        <div class="tool-card">
+            <div class="tool-name">jumbo_add_to_cart</div>
+            <div class="tool-desc">Scrolls to button, clicks it via Automation API, waits for cart update, verifies count. Supports quantity.</div>
+        </div>
+        <div class="tool-card">
+            <div class="tool-name">jumbo_get_cart_count</div>
+            <div class="tool-desc">Reads the cart badge count via Automation API DOM snapshot.</div>
+        </div>
+    </div>
+    <div class="history">
+        <div class="history-header">Cart History</div>
+        <div id="historyList"><div class="empty"><p>No items added yet.</p><p>Tools are called via MCP client (Atlas or external agent).</p></div></div>
+    </div>
+    <div class="status-bar" id="status">Ready</div>
+    <script>
+        browser.runtime.onMessage.addListener((message) => {
+            if (message.type === 'HISTORY_UPDATED') renderHistory(message.history);
+        });
+
+        browser.runtime.sendMessage({ type: 'GET_HISTORY' }).then((result) => {
+            if (result && result.history && result.history.length > 0) renderHistory(result.history);
+        });
+
+        function renderHistory(history) {
+            if (!history || history.length === 0) return;
+            document.getElementById('historyList').innerHTML = history.map(h =>
+                '<div class="history-item"><span class="qty">+ Added ' + h.quantity + 'x</span><br><span class="time">' + h.timestamp + '</span><br><span style="font-family:monospace;font-size:10px;color:#999;word-break:break-all">' + h.selector.substring(0, 80) + '</span></div>'
+            ).join('');
+            document.getElementById('status').textContent = history.length + ' items added';
+        }
+    </script>
+</body>
+</html>

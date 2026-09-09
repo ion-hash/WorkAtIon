@@ -1,0 +1,49 @@
+{
+    "manifest_version": 3,
+    "name": "Jumbo Cart API",
+    "version": "1.0.0",
+    "description": "Adds products to the Jumbo cart using the Webfuse Automation API. Registers MCP tool jumbo_add_to_cart.",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "js": ["content.js"],
+            "matches": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"]
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "host_permissions": ["https://www.jumbo.com/*", "https://*.jumbo.com/*"],
+    "tools": [
+        {
+            "name": "jumbo_add_to_cart",
+            "description": "Add a product to the Jumbo shopping cart by clicking its add-to-cart button using the Webfuse Automation API. The button is targeted by CSS selector. Optionally scroll the button into view first. Returns success status and current cart count.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector for the add-to-cart button (from jumbo_search results)"
+                    },
+                    "quantity": {
+                        "type": "integer",
+                        "description": "Quantity to add (default 1)",
+                        "minimum": 1,
+                        "maximum": 20
+                    }
+                },
+                "required": ["selector"]
+            }
+        },
+        {
+            "name": "jumbo_get_cart_count",
+            "description": "Check the current Jumbo cart item count by taking a DOM snapshot and looking for the cart badge.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    ]
+}
